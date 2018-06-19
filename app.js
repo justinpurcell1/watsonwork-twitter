@@ -22,7 +22,7 @@ const webhookSecret = process.env.TWITTER_WEBHOOK_SECRET;
 const consumerKey = process.env.TWITTER_CONSUMER_KEY;
 const consumerSecret = process.env.TWITTER_CONSUMER_SECRET;
 // Uri of the server
-const ngrokUri = 'http://localhost:3000';//'https://92cefb03.ngrok.io'
+const appUri = 'https://watsonwork-twitter-20180619211310221.mybluemix.net';
 
 const request_token_url = 'https://api.twitter.com/oauth/request_token';
 
@@ -246,7 +246,7 @@ app.post('/webhook', validateEvent, (req, res) => {
     const oauth = {
       consumer_key: consumerKey,
       consumer_secret: consumerSecret,
-      callback: `${ngrokUri}/auth/callback?user=${wws_user}`
+      callback: `${appUri}/auth/callback?user=${wws_user}`
     };
 
     request.post({url:request_token_url, oauth:oauth}, (e, r, body) => {
