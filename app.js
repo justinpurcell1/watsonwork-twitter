@@ -1,48 +1,58 @@
 import express from 'express';
 import crypto from 'crypto';
+import dotenv from 'dotenv';
 import bodyParser from 'body-parser';
 import zipcode from 'zipcode';
 import request from "request";
 import Twitter from 'twitter';
+import qs from 'querystring';
+
+dotenv.config();
 
 // Watson Work Services URL
 const watsonWork = "https://api.watsonwork.ibm.com";
 
 // Application Id, obtained from registering the application at https://developer.watsonwork.ibm.com
 const appId = process.env.TWITTER_CLIENT_ID;
-
 // Application secret. Obtained from registration of application.
 const appSecret = process.env.TWITTER_CLIENT_SECRET;
-
 // Webhook secret. Obtained from registration of a webhook.
 const webhookSecret = process.env.TWITTER_WEBHOOK_SECRET;
+// Twitter App information
+const consumerKey = process.env.TWITTER_CONSUMER_KEY;
+const consumerSecret = process.env.TWITTER_CONSUMER_SECRET;
+// Uri of the server
+const ngrokUri = 'http://localhost:3000';//'https://92cefb03.ngrok.io'
 
-// Twitter API keys obtained via: https://apps.twitter.com (see README for more info)
-// a JSON object with all the authentication info for Twitter
-const twitter_auth = { 
-  consumer_key: process.env.TWITTER_CONSUMER_KEY,
-  consumer_secret: process.env.TWITTER_CONSUMER_SECRET,
-  access_token_key: process.env.TWITTER_ACCESS_TOKEN_KEY,
-  access_token_secret: process.env.TWITTER_ACCESS_TOKEN_SECRET
-}
-// Keyword to "listen" for when receiving outbound webhook calls.
-const webhookKeyword = "@twitter";
+const request_token_url = 'https://api.twitter.com/oauth/request_token';
+
+
+
+// credentials for the user
+let credentials = {};
+
+// WWS User who is in making current request
+// TODO this does not work in parallel
+let wws_user;
+
+// keyword to tweet
+const webhookKeyword = "@tweet";
 
 const failMessage =
 `Hey, maybe it's me... maybe it's Twitter, but I sense the fail whale should be here... Try again later`;
 
-const successMessage = (username, tweetText, tweetId) => {
-  return `*Tweet* from [@${username}](http://twitter.com/${username}): ${tweetText}. Click [here](https://twitter.com/${username}/status/${tweetId}) to view more. \r\n\r\n`;
-};
+const successMessage = (tweet) => (
+  `Sucessfully tweeted: ${tweet}`
+);
 
 const app = express();
-const client = new Twitter(twitter_auth);
 
 // Send 200 and empty body for requests that won't be processed.
 const ignoreMessage = (res) => {
   res.status(200).end();
 }
 
+/** BEGIN WWS **/
 // Process webhook verification requests
 const verifyCallback = (req, res) => {
   console.log("Verifying challenge");
@@ -72,6 +82,7 @@ const validateEvent = (req, res, next) => {
   };
 
   // If event exists in processEvent, execute handler. If not, ignore message.
+
   return (processEvent[req.body.type]) ?
     processEvent[req.body.type](req, res) : ignoreMessage(res);
 };
@@ -150,6 +161,10 @@ const sendMessage = (spaceId, message) => {
   });
 };
 
+/** END WWS CODE **/
+
+/** BEGIN TWITTER CODE **/
+
 // Ensure we can parse JSON when listening to requests
 app.use(bodyParser.json());
 
@@ -157,50 +172,104 @@ app.get('/', (req, res) => {
   res.send('IBM Watson Workspace app for Twitter is alive and happy!');
 });
 
+// auth endpoint
+app.get('/auth/callback', (req, res) => {
+  const auth_data = req.query;
+  const user = auth_data.user;
+  console.log(`callback auth data: ${JSON.stringify(auth_data,null,4)}`);
+  const oauth = {
+    consumer_key: consumerKey,
+    consumer_secret: consumerSecret,
+    token: auth_data.oauth_token,
+    token_secret: credentials[user].req_token_secret,
+    verifier: auth_data.oauth_verifier
+  };
+  const url = 'https://api.twitter.com/oauth/access_token';
+  request.post({url:url, oauth:oauth}, (e, r, body) => {
+    // ready to make signed requests on behalf of the user
+    const perm_data = qs.parse(body);
+    const oauth = {
+      consumer_key: consumerKey,
+      consumer_secret: consumerSecret,
+      token: perm_data.oauth_token,
+      token_secret: perm_data.oauth_token_secret
+    };
+    credentials[user] = oauth;
+    // Verify that their information is accessible
+    const url = 'https://api.twitter.com/1.1/users/show.json';
+    const query = {
+      screen_name: perm_data.screen_name,
+      user_id: perm_data.user_id
+    };
+    console.log(perm_data);
+    request.get({url:url, oauth:oauth, qs:query, json:true}, (e, r, user) => {
+      console.log(user)
+    })
+  })
+  res.end('You have successfully logged in. Please return to your app');
+})
+
 // This is callback URI that Watson Workspace will call when there's a new message created
 app.post('/webhook', validateEvent, (req, res) => {
 
+  wws_user = req.body.userId;
+  console.log(`wws user: ${wws_user}`);
+
+  if(req.type === 'message-annotation-added') {
+    console.log('gotcha');
+    return;
+  }
+
   // Check if the first part of the message is '@twitter'.
   // This lets us "listen" for the '@twitter' keyword.
-  if (req.body.content.indexOf(webhookKeyword) != 0) {
+  if (!req.body.content || req.body.content.indexOf(webhookKeyword) != 0) {
     ignoreMessage(res);
     return;
   }
 
+  // maybe listen for an action
+
   // Send status back to Watson Work to confirm receipt of message
   res.status(200).end();
-  
+
   // Id of space where outbound event originated from.
   const spaceId = req.body.spaceId;
 
   // Parse twitter query from message body.
   // Expected format: <keyword> <twitter query>
-  const twitterQuery = req.body.content.split(' ')[1];
-  console.log('Getting Twitter results: \'' + twitterQuery + '\'');
+  const twitterQuery = req.body.content.split(' ').slice(1).join(' ');
+  console.log('Posting to Twitter \'' + twitterQuery + '\'');
 
-  client.get('search/tweets', {q: twitterQuery}, function(err, tweets, response) {
+  // if the user has not authed, do so
+  if (!credentials[wws_user] || !credentials[wws_user].token) {
+    credentials[wws_user] = {};
+    const oauth = {
+      consumer_key: consumerKey,
+      consumer_secret: consumerSecret,
+      callback: `${ngrokUri}/auth/callback?user=${wws_user}`
+    };
 
-    // If error, send message to Watson Workspace with failure message
-    if (err) {
-      sendMessage(spaceId, failMessage, res);
-      return ;
+    request.post({url:request_token_url, oauth:oauth}, (e, r, body) => {
+      var req_data = qs.parse(body);
+      var uri = 'https://api.twitter.com/oauth/authenticate' + '?' + qs.stringify({oauth_token: req_data.oauth_token});
+      credentials[wws_user].req_token_secret = req_data.oauth_token_secret;
+      sendMessage(spaceId, uri);
+    });
+  } else {
+    // attempt to post the tweet
+    const query = { status: twitterQuery};
+    request.post({url: 'https://api.twitter.com/1.1/statuses/update.json', oauth: credentials[wws_user], qs: query }, (e,r,body) => {
+      if (e) {
+        console.log(e);
+        return;
+      }
+      console.log(`posted? ${body}`);
+      sendMessage(spaceId, successMessage(twitterQuery));
+    });
     }
-    
-    var resultCount = tweets.statuses.length;
-    var messageToPost = "";
-    
-    // return up to 3 tweets
-    var tweetCount = resultCount > 3 ? 3 : resultCount;
-    
-    for (var i = 0; i < tweetCount; i++) { 
-      messageToPost += successMessage(tweets.statuses[i].user.screen_name, tweets.statuses[i].text, tweets.statuses[i].id_str);
-    }
-    
-    console.log("Posting recent twitter search results back to space");
-    sendMessage(spaceId, messageToPost);
-    return;
-  });
 });
+
+/** END TWITTER CODE **/
 
 // Kickoff the main process to listen to incoming requests
 app.listen(process.env.PORT || 3000, () => {

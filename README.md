@@ -2,9 +2,9 @@
 
 [![Build Status](https://travis-ci.org/watsonwork/watsonwork-twitter.svg)](https://travis-ci.org/watsonwork/watsonwork-twitter)
 
-App built with node.js to listen to messages posted in a space in IBM Watson Workspace and returns back recent tweets about a given topic. 
+App built with node.js to post to Twitter from IBM Watson Workspace.
 
-This app will listen for `@twitter <keyword/hashtag/@user/phrase>` and give you a sense of what people are saying about that in Twitter.
+This app will listen for `@twitter <keyword/hashtag/@user/phrase>` post to Twitter for you.
 
 The Watson Work platform provides **spaces** for people to exchange
 **messages** in conversations. This app shows how to listen to a conversation
@@ -13,7 +13,7 @@ to the conversation. It also demonstrates how to authenticate an application
 and obtain the OAuth token needed to make Watson Work API calls.
 
 ## Deploy the app
-Assuming you just want to take this code and get it running before hacking it, the first step is to get it deployed to a live on a server so that IBM Watson Workspace validates it's up and working before pushing messages to the app. 
+Assuming you just want to take this code and get it running before hacking it, the first step is to get it deployed to a live on a server so that IBM Watson Workspace validates it's up and working before pushing messages to the app.
 
 To facilitate things, you can click the button below and it'll get it going to Bluemix very easily, however this is **NOT** required. Feel free to deploy on any server you want.
 
@@ -55,7 +55,7 @@ Now that we have the API keys, set them as environment variables. If you are usi
 3. Define the 7 variables from above: `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET`, `TWITTER_WEBHOOK_SECRET`, `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`, `TWITTER_ACCESS_TOKEN_KEY` and `TWITTER_ACCESS_TOKEN_SECRET`, provide the right values and save them.
 4. Stop and start the app so the values take effect.
 
-You are almost there!!! 
+You are almost there!!!
 
 ## Enable the webhook
 
